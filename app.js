@@ -133,9 +133,14 @@
     button.disabled=true;button.textContent="Buscando…";
     try{
       const q=[a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","España"].filter(Boolean).join(", ");
-      const url="https://photon.komoot.io/api/?q="+encodeURIComponent(q)+"&lat=28.1235&lon=-15.4363&limit=6&lang=es";
+      // Petición mínima compatible con Photon: evitar parámetros de sesgo/idioma
+      // que algunos nodos públicos pueden rechazar.
+      const url="https://photon.komoot.io/api/?q="+encodeURIComponent(q)+"&limit=5";
       const res=await fetch(url,{headers:{"Accept":"application/json"}});
-      if(!res.ok)throw Error("El servicio cartográfico no responde (HTTP "+res.status+"). Prueba de nuevo más tarde.");
+      if(!res.ok){
+        let detail="";try{detail=(await res.text()).slice(0,240)}catch(_){}
+        throw Error("Photon ha rechazado la búsqueda (HTTP "+res.status+"). "+detail);
+      }
       const data=await res.json();
       const found=(data.features||[]).filter(f=>Array.isArray(f.geometry?.coordinates)&&f.geometry.coordinates.length===2);
       if(!found.length)throw Error("No se ha encontrado una coincidencia. Comprueba el nombre de la vía y el número.");
