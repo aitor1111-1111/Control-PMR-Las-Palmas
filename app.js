@@ -96,21 +96,21 @@
     const reviewed=auths.filter(hasInspection).length;
     const q=(window.mapQuery||"").trim().toUpperCase();
     const filtered=auths.filter(a=>!q||[a.matricula,a.emplazamiento,a.numero_portal,a.barrio,a.distrito,a.expediente].some(v=>String(v||"").toUpperCase().includes(q)));
-    const visible=filtered.slice(0,150);
+    const visible=filtered;
     $("#tab-content").innerHTML=
       '<h3>Mapa y navegación de emplazamientos</h3>'+
-      '<p class="muted">La cartografía integrada anterior se ha retirado porque el servidor de mapas devolvía errores HTTP 400. Ahora cada dirección abre directamente Google Maps o la aplicación de mapas instalada en el móvil.</p>'+
+      '<p class="muted">La cartografía integrada anterior se ha retirado porque el servidor de mapas devolvía errores HTTP 400. Se muestran todas las direcciones del registro. Google Maps recibe la calle y el número completos; cuando hay coordenadas verificadas, se utiliza ese punto exacto.</p>'+
       '<div class="map-legend"><span><i class="legend-dot green"></i> Revisado</span><span><i class="legend-dot red"></i> Sin revisar</span></div>'+
       '<div class="stats-grid"><article class="stat-card"><span>Autorizaciones</span><strong>'+auths.length+'</strong></article><article class="stat-card"><span>Revisadas</span><strong>'+reviewed+'</strong></article><article class="stat-card"><span>Sin revisar</span><strong>'+(auths.length-reviewed)+'</strong></article></div>'+
       '<label>Buscar matrícula, calle, portal o barrio<input id="map-filter" value="'+esc(window.mapQuery||"")+'" placeholder="Ej. ACONCAGUA o 1118GZV"></label>'+
       '<p class="muted">Mostrando '+visible.length+' de '+filtered.length+' resultados.</p>'+
       '<div id="map-results">'+visible.map(a=>{
-        const done=hasInspection(a),coords=Number.isFinite(Number(a.latitud))&&a.latitud!==null&&Number.isFinite(Number(a.longitud))&&a.longitud!==null;
+        const done=hasInspection(a),coords=a.geocodificacion_estado==="verificada"&&Number.isFinite(Number(a.latitud))&&a.latitud!==null&&Number.isFinite(Number(a.longitud))&&a.longitud!==null;
         const destination=coords?Number(a.latitud)+","+Number(a.longitud):addressText(a);
         const maps="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(destination);
-        return '<article class="map-row '+(done?"map-reviewed":"map-unreviewed")+'"><div class="map-row-info"><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula||"Sin matrícula")+'</p><span class="pill '+(done?"ok":"bad")+'">'+(done?"Revisado":"Sin revisar")+'</span>'+(coords?'<small class="verified-label">Coordenadas verificadas</small>':'')+'</div><div class="map-actions"><a class="map-open" href="'+maps+'" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>'+(agent.rol==="administrador"&&!coords?'<button class="secondary geocode-btn" data-id="'+a.id+'">Verificar ubicación</button>':'')+'</div></article>';
+        return '<article class="map-row '+(done?"map-reviewed":"map-unreviewed")+'"><div class="map-row-info"><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula||"Sin matrícula")+'</p><span class="pill '+(done?"ok":"bad")+'">'+(done?"Revisado":"Sin revisar")+'</span>'+(coords?'<small class="verified-label">Punto exacto verificado</small>':'<small class="muted">Ubicación calculada por Google Maps a partir de la dirección; comprueba el portal.</small>')+'</div><div class="map-actions"><a class="map-open" href="'+maps+'" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>'+(agent.rol==="administrador"&&!coords?'<button class="secondary geocode-btn" data-id="'+a.id+'">Verificar ubicación</button>':'')+'</div></article>';
       }).join("")+'</div>'+
-      (filtered.length>150?'<p class="muted">Se muestran los primeros 150 resultados. Usa el buscador para localizar los demás.</p>':"");
+      "";
     $("#map-filter").oninput=e=>{window.mapQuery=e.target.value;map();const input=$("#map-filter");input.focus();input.setSelectionRange(input.value.length,input.value.length)};
     $("#map-results").querySelectorAll(".geocode-btn").forEach(b=>b.onclick=()=>geocodeAuthorization(Number(b.dataset.id),b));
   }
