@@ -1,0 +1,11 @@
+{
+  "name": "Control de Estacionamiento PMR - Las Palmas",
+  "short_name": "Control PMR",
+  "description": "Control interno de reservas de estacionamiento PMR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f5f3",
+  "theme_color": "#123b32",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}
