@@ -93,40 +93,26 @@
   function hasInspection(a){return checks.some(i=>Number(i.autorizacion_id)===Number(a.id))}
   function addressText(a){return [a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","Canarias","España"].filter(Boolean).join(", ")}
   function map(){
-    const geocoded=auths.filter(a=>Number.isFinite(Number(a.latitud))&&a.latitud!==null&&Number.isFinite(Number(a.longitud))&&a.longitud!==null);
-    const pending=auths.filter(a=>!geocoded.includes(a));
     const reviewed=auths.filter(hasInspection).length;
+    const q=(window.mapQuery||"").trim().toUpperCase();
+    const filtered=auths.filter(a=>!q||[a.matricula,a.emplazamiento,a.numero_portal,a.barrio,a.distrito,a.expediente].some(v=>String(v||"").toUpperCase().includes(q)));
+    const visible=filtered.slice(0,150);
     $("#tab-content").innerHTML=
-      '<h3>Mapa de emplazamientos</h3>'+
-      '<p class="muted">Verde: autorización con inspección registrada. Rojo: sin inspección. Naranja: dirección compartida con revisiones parciales. Los puntos solo aparecen cuando sus coordenadas se han verificado.</p>'+
-      '<div class="map-legend"><span><i class="legend-dot green"></i> Revisado</span><span><i class="legend-dot red"></i> Sin revisar</span><span><i class="legend-dot orange"></i> Revisión parcial</span></div>'+
-      '<div class="stats-grid"><article class="stat-card"><span>Con coordenadas</span><strong>'+geocoded.length+'</strong></article><article class="stat-card"><span>Pendientes de ubicar</span><strong>'+pending.length+'</strong></article><article class="stat-card"><span>Con inspección</span><strong>'+reviewed+'</strong></article></div>'+
-      '<div id="pmr-map" class="pmr-map"></div>'+
-      '<h4>Direcciones pendientes de geolocalizar ('+pending.length+')</h4>'+
-      '<p class="muted">La búsqueda se realiza de una en una. Revisa que la calle y el número coincidan antes de guardar las coordenadas.</p>'+
-      '<div id="pending-addresses">'+pending.slice(0,100).map(a=>'<article class="map-row"><div><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula||"Sin matrícula")+'</p><small class="muted">'+esc(a.geocodificacion_estado||"pendiente")+'</small></div>'+(agent.rol==="administrador"?'<button class="secondary geocode-btn" data-id="'+a.id+'">Localizar y verificar</button>':'<span class="muted">Pendiente de geolocalización por Administración</span>')+'</article>').join("")+'</div>'+
-      (pending.length>100?'<p class="muted">Se muestran las primeras 100 direcciones pendientes.</p>':"");
-    if(!window.L){$("#pmr-map").innerHTML="<p>No se ha podido cargar el mapa. Comprueba la conexión a Internet y vuelve a entrar.</p>";return}
-    leafletMap=L.map("pmr-map").setView([28.1235,-15.4363],12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(leafletMap);
-    markerLayer=L.featureGroup().addTo(leafletMap);
-    const groups=new Map();
-    geocoded.forEach(a=>{
-      const key=Number(a.latitud).toFixed(5)+","+Number(a.longitud).toFixed(5);
-      if(!groups.has(key))groups.set(key,[]);
-      groups.get(key).push(a);
-    });
-    groups.forEach((items,key)=>{
-      const done=items.filter(hasInspection).length;
-      const color=done===0?"#c83c3c":done===items.length?"#16834b":"#d58a18";
-      const [lat,lon]=key.split(",").map(Number);
-      const marker=L.circleMarker([lat,lon],{radius:9,color:"#fff",weight:2,fillColor:color,fillOpacity:.95}).addTo(markerLayer);
-      const rows=items.map(a=>'<div class="popup-item"><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><br>'+esc(a.matricula||"Sin matrícula")+' · '+esc(a.distrito)+'<br><span>'+(hasInspection(a)?"Revisado":"Sin revisar")+'</span><br><a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+","+lon)+'">Abrir ruta en Google Maps</a></div>').join("");
-      marker.bindPopup('<b>'+done+' de '+items.length+' autorizaciones revisadas</b>'+rows);
-    });
-    if(geocoded.length)leafletMap.fitBounds(markerLayer.getBounds().pad(.12));
-    setTimeout(()=>leafletMap&&leafletMap.invalidateSize(),250);
-    $("#pending-addresses").querySelectorAll(".geocode-btn").forEach(b=>b.onclick=()=>geocodeAuthorization(Number(b.dataset.id),b));
+      '<h3>Mapa y navegación de emplazamientos</h3>'+
+      '<p class="muted">La cartografía integrada anterior se ha retirado porque el servidor de mapas devolvía errores HTTP 400. Ahora cada dirección abre directamente Google Maps o la aplicación de mapas instalada en el móvil.</p>'+
+      '<div class="map-legend"><span><i class="legend-dot green"></i> Revisado</span><span><i class="legend-dot red"></i> Sin revisar</span></div>'+
+      '<div class="stats-grid"><article class="stat-card"><span>Autorizaciones</span><strong>'+auths.length+'</strong></article><article class="stat-card"><span>Revisadas</span><strong>'+reviewed+'</strong></article><article class="stat-card"><span>Sin revisar</span><strong>'+(auths.length-reviewed)+'</strong></article></div>'+
+      '<label>Buscar matrícula, calle, portal o barrio<input id="map-filter" value="'+esc(window.mapQuery||"")+'" placeholder="Ej. ACONCAGUA o 1118GZV"></label>'+
+      '<p class="muted">Mostrando '+visible.length+' de '+filtered.length+' resultados.</p>'+
+      '<div id="map-results">'+visible.map(a=>{
+        const done=hasInspection(a),coords=Number.isFinite(Number(a.latitud))&&a.latitud!==null&&Number.isFinite(Number(a.longitud))&&a.longitud!==null;
+        const destination=coords?Number(a.latitud)+","+Number(a.longitud):addressText(a);
+        const maps="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(destination);
+        return '<article class="map-row '+(done?"map-reviewed":"map-unreviewed")+'"><div class="map-row-info"><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula||"Sin matrícula")+'</p><span class="pill '+(done?"ok":"bad")+'">'+(done?"Revisado":"Sin revisar")+'</span>'+(coords?'<small class="verified-label">Coordenadas verificadas</small>':'')+'</div><div class="map-actions"><a class="map-open" href="'+maps+'" target="_blank" rel="noopener">Abrir en Google Maps ↗</a>'+(agent.rol==="administrador"&&!coords?'<button class="secondary geocode-btn" data-id="'+a.id+'">Verificar ubicación</button>':'')+'</div></article>';
+      }).join("")+'</div>'+
+      (filtered.length>150?'<p class="muted">Se muestran los primeros 150 resultados. Usa el buscador para localizar los demás.</p>':"");
+    $("#map-filter").oninput=e=>{window.mapQuery=e.target.value;map();const input=$("#map-filter");input.focus();input.setSelectionRange(input.value.length,input.value.length)};
+    $("#map-results").querySelectorAll(".geocode-btn").forEach(b=>b.onclick=()=>geocodeAuthorization(Number(b.dataset.id),b));
   }
   async function geocodeAuthorization(id,button){
     const a=auths.find(x=>Number(x.id)===id);if(!a||agent.rol!=="administrador")return;
