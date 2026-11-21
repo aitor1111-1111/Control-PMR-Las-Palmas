@@ -119,37 +119,25 @@
     const address=[a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","España"].filter(Boolean).join(", ");
     button.disabled=true;button.textContent="Abriendo Google Maps…";
     try{
-      // Google Maps se abre directamente: no dependemos de un geocodificador
-      // que pueda bloquear las peticiones desde GitHub Pages.
       const mapsUrl="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(address);
       window.open(mapsUrl,"_blank","noopener");
-      alert("Se ha abierto Google Maps con esta dirección:\n\n"+address+"\n\nComprueba que el pin coincide con el portal correcto. En Google Maps, comparte o copia el enlace de ese punto y vuelve a esta aplicación.");
-      const raw=prompt("Pega el enlace de Google Maps o introduce las coordenadas como LATITUD,LONGITUD.\n\nEjemplo: 28.12345,-15.43210\n\nSi no puedes confirmar el punto exacto, pulsa Cancelar.");
-      if(raw===null){button.disabled=false;button.textContent="Localizar y verificar";return}
-      let lat=null,lon=null;
-      const text=raw.trim();
+      const raw=prompt("Google Maps se ha abierto con esta dirección:\\n\\n"+address+"\\n\\nComprueba el portal exacto. Después pega aquí el enlace del punto de Google Maps o escribe sus coordenadas como LATITUD,LONGITUD.\\n\\nSi no puedes confirmar el punto exacto, pulsa Cancelar.");
+      if(raw===null){button.disabled=false;button.textContent="Verificar ubicación";return}
+      const text=raw.trim();let lat=null,lon=null;
       const patterns=[
-        /@(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)/,
-        /!3d(-?\\d{1,2}\\.\\d+)!4d(-?\\d{1,3}\\.\\d+)/,
-        /[?&](?:q|query|destination)=(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)/
+        /@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/,
+        /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,
+        /[?&](?:q|query|destination)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/
       ];
       for(const pattern of patterns){const m=text.match(pattern);if(m){lat=Number(m[1]);lon=Number(m[2]);break}}
-      if(lat===null||lon===null){
-        const m=text.match(/^\\s*(-?\\d{1,2}(?:\\.\\d+)?)\\s*[,; ]\\s*(-?\\d{1,3}(?:\\.\\d+)?)\\s*$/);
-        if(m){lat=Number(m[1]);lon=Number(m[2])}
-      }
-      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180){
-        throw Error("No he podido extraer coordenadas de ese texto. Pega un enlace de Google Maps que incluya el punto o introduce LATITUD,LONGITUD.");
-      }
-      if(lat<27||lat>30||lon< -19||lon> -13){
-        throw Error("Las coordenadas no parecen corresponder a Gran Canaria. No se ha guardado nada.");
-      }
-      const confirmText="Confirma que el pin corresponde exactamente a "+address+".\n\nLatitud: "+lat+"\nLongitud: "+lon+"\n\n¿Guardar esta ubicación verificada?";
-      if(!confirm(confirmText)){button.disabled=false;button.textContent="Localizar y verificar";return}
+      if(lat===null||lon===null){const m=text.match(/^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);if(m){lat=Number(m[1]);lon=Number(m[2])}}
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw Error("No he podido extraer coordenadas. Introduce LATITUD,LONGITUD, por ejemplo 28.12345,-15.43210.");
+      if(lat<27||lat>30||lon< -19||lon> -13)throw Error("Las coordenadas no parecen corresponder a Gran Canaria. No se ha guardado nada.");
+      if(!confirm("Confirma que el pin corresponde exactamente a "+address+".\\n\\nLatitud: "+lat+"\\nLongitud: "+lon+"\\n\\n¿Guardar esta ubicación verificada?")){button.disabled=false;button.textContent="Verificar ubicación";return}
       const {error}=await db.from("autorizaciones").update({latitud:lat,longitud:lon,geocodificacion_estado:"verificada"}).eq("id",a.id);
       if(error)throw Error("No se pudieron guardar las coordenadas: "+error.message);
       await reload();map();
-    }catch(err){alert(err.message);button.disabled=false;button.textContent="Localizar y verificar"}
+    }catch(err){alert(err.message);button.disabled=false;button.textContent="Verificar ubicación"}
   }
   function admin(){
     if(agent.rol!=="administrador"){render("inicio");return}
