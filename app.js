@@ -132,20 +132,26 @@
     const a=auths.find(x=>Number(x.id)===id);if(!a||agent.rol!=="administrador")return;
     button.disabled=true;button.textContent="Buscando…";
     try{
-      const q=addressText(a);
-      const url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&country=es&q="+encodeURIComponent(q);
+      const q=[a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","España"].filter(Boolean).join(", ");
+      const url="https://photon.komoot.io/api/?q="+encodeURIComponent(q)+"&lat=28.1235&lon=-15.4363&limit=6&lang=es";
       const res=await fetch(url,{headers:{"Accept":"application/json"}});
-      if(!res.ok)throw Error("El servicio de búsqueda no responde (HTTP "+res.status+").");
-      const found=await res.json();
-      if(!found.length)throw Error("No se ha encontrado una coincidencia. Comprueba la dirección o inténtalo más adelante.");
-      const options=found.map((x,n)=>(n+1)+". "+x.display_name).join("\n\n");
-      const choice=prompt("Comprueba qué resultado corresponde exactamente con el portal "+(a.numero_portal||"indicado")+". Escribe el número del resultado para guardar sus coordenadas:\n\n"+options+"\n\nSi ninguno coincide, pulsa Cancelar.");
+      if(!res.ok)throw Error("El servicio cartográfico no responde (HTTP "+res.status+"). Prueba de nuevo más tarde.");
+      const data=await res.json();
+      const found=(data.features||[]).filter(f=>Array.isArray(f.geometry?.coordinates)&&f.geometry.coordinates.length===2);
+      if(!found.length)throw Error("No se ha encontrado una coincidencia. Comprueba el nombre de la vía y el número.");
+      const label=f=>{
+        const p=f.properties||{},parts=[p.name,p.street,p.housenumber,p.district,p.city,p.state,p.country].filter(Boolean);
+        return [...new Set(parts)].join(", ");
+      };
+      const options=found.map((f,n)=>(n+1)+". "+label(f)).join("\n\n");
+      const choice=prompt("Comprueba que el resultado corresponde a la calle y al portal "+(a.numero_portal||"indicado")+". Escribe el número del resultado para continuar:\n\n"+options+"\n\nSi ninguno coincide, pulsa Cancelar.");
       if(choice===null){button.disabled=false;button.textContent="Localizar y verificar";return}
       const selected=found[Number(choice)-1];
       if(!selected){throw Error("Selección no válida. No se ha guardado ningún punto.")}
-      const confirmText="¿Confirmas esta ubicación?\n\n"+selected.display_name+"\n\nLatitud: "+selected.lat+"\nLongitud: "+selected.lon;
-      if(!confirm(confirmText)){button.disabled=false;button.textContent="Localizar y verificar";return}
-      const {error}=await db.from("autorizaciones").update({latitud:Number(selected.lat),longitud:Number(selected.lon),geocodificacion_estado:"verificada"}).eq("id",a.id);
+      const [lon,lat]=selected.geometry.coordinates;
+      const description=label(selected)||"Resultado cartográfico";
+      if(!confirm("¿Confirmas que esta es la ubicación exacta del emplazamiento?\n\n"+description+"\n\nLatitud: "+lat+"\nLongitud: "+lon+"\n\nSolo confirma si coincide con el portal correcto.")){button.disabled=false;button.textContent="Localizar y verificar";return}
+      const {error}=await db.from("autorizaciones").update({latitud:Number(lat),longitud:Number(lon),geocodificacion_estado:"verificada"}).eq("id",a.id);
       if(error)throw Error("No se pudieron guardar las coordenadas: "+error.message);
       await reload();map();
     }catch(err){alert(err.message);button.disabled=false;button.textContent="Localizar y verificar"}
