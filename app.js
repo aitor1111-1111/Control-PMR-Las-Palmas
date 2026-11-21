@@ -130,33 +130,37 @@
   }
   async function geocodeAuthorization(id,button){
     const a=auths.find(x=>Number(x.id)===id);if(!a||agent.rol!=="administrador")return;
-    button.disabled=true;button.textContent="Buscando…";
+    const address=[a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","España"].filter(Boolean).join(", ");
+    button.disabled=true;button.textContent="Abriendo Google Maps…";
     try{
-      const q=[a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","España"].filter(Boolean).join(", ");
-      // Petición mínima compatible con Photon: evitar parámetros de sesgo/idioma
-      // que algunos nodos públicos pueden rechazar.
-      const url="https://photon.komoot.io/api/?q="+encodeURIComponent(q)+"&limit=5";
-      const res=await fetch(url,{headers:{"Accept":"application/json"}});
-      if(!res.ok){
-        let detail="";try{detail=(await res.text()).slice(0,240)}catch(_){}
-        throw Error("Photon ha rechazado la búsqueda (HTTP "+res.status+"). "+detail);
+      // Google Maps se abre directamente: no dependemos de un geocodificador
+      // que pueda bloquear las peticiones desde GitHub Pages.
+      const mapsUrl="https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(address);
+      window.open(mapsUrl,"_blank","noopener");
+      alert("Se ha abierto Google Maps con esta dirección:\n\n"+address+"\n\nComprueba que el pin coincide con el portal correcto. En Google Maps, comparte o copia el enlace de ese punto y vuelve a esta aplicación.");
+      const raw=prompt("Pega el enlace de Google Maps o introduce las coordenadas como LATITUD,LONGITUD.\n\nEjemplo: 28.12345,-15.43210\n\nSi no puedes confirmar el punto exacto, pulsa Cancelar.");
+      if(raw===null){button.disabled=false;button.textContent="Localizar y verificar";return}
+      let lat=null,lon=null;
+      const text=raw.trim();
+      const patterns=[
+        /@(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)/,
+        /!3d(-?\\d{1,2}\\.\\d+)!4d(-?\\d{1,3}\\.\\d+)/,
+        /[?&](?:q|query|destination)=(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)/
+      ];
+      for(const pattern of patterns){const m=text.match(pattern);if(m){lat=Number(m[1]);lon=Number(m[2]);break}}
+      if(lat===null||lon===null){
+        const m=text.match(/^\\s*(-?\\d{1,2}(?:\\.\\d+)?)\\s*[,; ]\\s*(-?\\d{1,3}(?:\\.\\d+)?)\\s*$/);
+        if(m){lat=Number(m[1]);lon=Number(m[2])}
       }
-      const data=await res.json();
-      const found=(data.features||[]).filter(f=>Array.isArray(f.geometry?.coordinates)&&f.geometry.coordinates.length===2);
-      if(!found.length)throw Error("No se ha encontrado una coincidencia. Comprueba el nombre de la vía y el número.");
-      const label=f=>{
-        const p=f.properties||{},parts=[p.name,p.street,p.housenumber,p.district,p.city,p.state,p.country].filter(Boolean);
-        return [...new Set(parts)].join(", ");
-      };
-      const options=found.map((f,n)=>(n+1)+". "+label(f)).join("\n\n");
-      const choice=prompt("Comprueba que el resultado corresponde a la calle y al portal "+(a.numero_portal||"indicado")+". Escribe el número del resultado para continuar:\n\n"+options+"\n\nSi ninguno coincide, pulsa Cancelar.");
-      if(choice===null){button.disabled=false;button.textContent="Localizar y verificar";return}
-      const selected=found[Number(choice)-1];
-      if(!selected){throw Error("Selección no válida. No se ha guardado ningún punto.")}
-      const [lon,lat]=selected.geometry.coordinates;
-      const description=label(selected)||"Resultado cartográfico";
-      if(!confirm("¿Confirmas que esta es la ubicación exacta del emplazamiento?\n\n"+description+"\n\nLatitud: "+lat+"\nLongitud: "+lon+"\n\nSolo confirma si coincide con el portal correcto.")){button.disabled=false;button.textContent="Localizar y verificar";return}
-      const {error}=await db.from("autorizaciones").update({latitud:Number(lat),longitud:Number(lon),geocodificacion_estado:"verificada"}).eq("id",a.id);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180){
+        throw Error("No he podido extraer coordenadas de ese texto. Pega un enlace de Google Maps que incluya el punto o introduce LATITUD,LONGITUD.");
+      }
+      if(lat<27||lat>30||lon< -19||lon> -13){
+        throw Error("Las coordenadas no parecen corresponder a Gran Canaria. No se ha guardado nada.");
+      }
+      const confirmText="Confirma que el pin corresponde exactamente a "+address+".\n\nLatitud: "+lat+"\nLongitud: "+lon+"\n\n¿Guardar esta ubicación verificada?";
+      if(!confirm(confirmText)){button.disabled=false;button.textContent="Localizar y verificar";return}
+      const {error}=await db.from("autorizaciones").update({latitud:lat,longitud:lon,geocodificacion_estado:"verificada"}).eq("id",a.id);
       if(error)throw Error("No se pudieron guardar las coordenadas: "+error.message);
       await reload();map();
     }catch(err){alert(err.message);button.disabled=false;button.textContent="Localizar y verificar"}
