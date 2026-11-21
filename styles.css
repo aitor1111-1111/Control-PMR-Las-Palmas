@@ -9,3 +9,12 @@
 .popup-item a{color:#176b50;font-weight:650}
 .geocode-btn{white-space:nowrap}
 @media(max-width:560px){.pmr-map{height:48vh;min-height:300px}.map-row{gap:8px}.geocode-btn{width:100%}}
+
+/* Lista de navegación Google Maps */
+.map-row{border-left:5px solid #c83c3c;border-radius:10px;padding:13px;margin:10px 0;background:#fff}
+.map-row.map-reviewed{border-left-color:#16834b}
+.map-row-info{min-width:0}
+.map-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.map-open{display:inline-block;background:#176b50;color:#fff!important;text-decoration:none;padding:10px 13px;border-radius:10px;font-weight:700;white-space:nowrap}
+.verified-label{display:block;color:#176b50;margin-top:6px}
+@media(max-width:560px){.map-actions,.map-open,.map-actions button{width:100%;text-align:center}.map-row{gap:10px}}
