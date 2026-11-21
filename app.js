@@ -6,7 +6,7 @@
   const $ = s => document.querySelector(s);
   const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const dateToday = () => { const d=new Date(); return new Date(d-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
-  let user=null, agent=null, auths=[], checks=[], agents=[], tab="inicio";
+  let user=null, agent=null, auths=[], checks=[], agents=[], tab="inicio", leafletMap=null, markerLayer=null;
 
   function msg(t, bad=true) { $("#login-message").textContent=t||""; $("#login-message").style.color=bad?"#a33333":"#216143"; }
   function showSession() {
@@ -24,7 +24,7 @@
   async function reload() {
     $("#connection-status").textContent="Consultando Supabase…";
     const [a,i]=await Promise.all([
-      db.from("autorizaciones").select("id,numero_original,emplazamiento,numero_portal,barrio,distrito,matricula,expediente,numero_resolucion,fecha_resolucion").order("distrito").order("emplazamiento").limit(2000),
+      db.from("autorizaciones").select("id,numero_original,emplazamiento,numero_portal,barrio,distrito,matricula,expediente,numero_resolucion,fecha_resolucion,latitud,longitud,geocodificacion_estado").order("distrito").order("emplazamiento").limit(2000),
       db.from("inspecciones").select("id,autorizacion_id,agente_id,fecha_inspeccion,estado_comprobacion,observaciones,matricula_adicional_1,estado_matricula_1,matricula_adicional_2,estado_matricula_2,creado_en").order("fecha_inspeccion",{ascending:false}).limit(2000)
     ]);
     if(a.error) throw Error("Tabla autorizaciones: "+a.error.message);
@@ -43,7 +43,7 @@
     });
   }
   function render(t) {
-    tab=t; tabs();
+    tab=t; tabs(); leafletMap=null; markerLayer=null;
     if(t==="inicio") home();
     if(t==="buscar") search();
     if(t==="incidencias") incidents();
@@ -90,9 +90,65 @@
   }
   function incidents(){const rows=checks.filter(i=>i.estado_comprobacion!=="OK / vigente");$("#tab-content").innerHTML='<h3>Incidencias</h3><p class="muted">'+rows.length+' inspección(es) con resultado distinto de OK / vigente.</p>'+(rows.length?rows.map(card).join(""):'<p class="muted">No hay incidencias registradas.</p>')}
   function history(){$("#tab-content").innerHTML='<h3>Historial de inspecciones</h3><p class="muted">'+checks.length+' registro(s), ordenados por fecha.</p>'+(checks.length?checks.map(card).join(""):'<p class="muted">Todavía no hay inspecciones.</p>')}
+  function hasInspection(a){return checks.some(i=>Number(i.autorizacion_id)===Number(a.id))}
+  function addressText(a){return [a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria","Canarias","España"].filter(Boolean).join(", ")}
   function map(){
-    const rows=auths.filter(a=>a.emplazamiento);
-    $("#tab-content").innerHTML='<h3>Mapa de emplazamientos</h3><p class="muted">Cada enlace abre la búsqueda de la dirección en OpenStreetMap. Son ubicaciones orientativas, no coordenadas municipales verificadas.</p>'+rows.slice(0,300).map(a=>'<article class="map-row"><div><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula)+'</p></div><a target="_blank" rel="noopener" href="https://www.openstreetmap.org/search?query='+encodeURIComponent([a.emplazamiento,a.numero_portal,a.barrio,a.distrito,"Las Palmas de Gran Canaria"].filter(Boolean).join(", "))+'">Ver ubicación</a></article>').join("")+(rows.length>300?'<p class="muted">Se muestran los primeros 300 registros.</p>':"");
+    const geocoded=auths.filter(a=>Number.isFinite(Number(a.latitud))&&a.latitud!==null&&Number.isFinite(Number(a.longitud))&&a.longitud!==null);
+    const pending=auths.filter(a=>!geocoded.includes(a));
+    const reviewed=auths.filter(hasInspection).length;
+    $("#tab-content").innerHTML=
+      '<h3>Mapa de emplazamientos</h3>'+
+      '<p class="muted">Verde: autorización con inspección registrada. Rojo: sin inspección. Naranja: dirección compartida con revisiones parciales. Los puntos solo aparecen cuando sus coordenadas se han verificado.</p>'+
+      '<div class="map-legend"><span><i class="legend-dot green"></i> Revisado</span><span><i class="legend-dot red"></i> Sin revisar</span><span><i class="legend-dot orange"></i> Revisión parcial</span></div>'+
+      '<div class="stats-grid"><article class="stat-card"><span>Con coordenadas</span><strong>'+geocoded.length+'</strong></article><article class="stat-card"><span>Pendientes de ubicar</span><strong>'+pending.length+'</strong></article><article class="stat-card"><span>Con inspección</span><strong>'+reviewed+'</strong></article></div>'+
+      '<div id="pmr-map" class="pmr-map"></div>'+
+      '<h4>Direcciones pendientes de geolocalizar ('+pending.length+')</h4>'+
+      '<p class="muted">La búsqueda se realiza de una en una. Revisa que la calle y el número coincidan antes de guardar las coordenadas.</p>'+
+      '<div id="pending-addresses">'+pending.slice(0,100).map(a=>'<article class="map-row"><div><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><p class="muted">'+esc(a.barrio)+' · '+esc(a.distrito)+' · '+esc(a.matricula||"Sin matrícula")+'</p><small class="muted">'+esc(a.geocodificacion_estado||"pendiente")+'</small></div>'+(agent.rol==="administrador"?'<button class="secondary geocode-btn" data-id="'+a.id+'">Localizar y verificar</button>':'<span class="muted">Pendiente de geolocalización por Administración</span>')+'</article>').join("")+'</div>'+
+      (pending.length>100?'<p class="muted">Se muestran las primeras 100 direcciones pendientes.</p>':"");
+    if(!window.L){$("#pmr-map").innerHTML="<p>No se ha podido cargar el mapa. Comprueba la conexión a Internet y vuelve a entrar.</p>";return}
+    leafletMap=L.map("pmr-map").setView([28.1235,-15.4363],12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(leafletMap);
+    markerLayer=L.featureGroup().addTo(leafletMap);
+    const groups=new Map();
+    geocoded.forEach(a=>{
+      const key=Number(a.latitud).toFixed(5)+","+Number(a.longitud).toFixed(5);
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(a);
+    });
+    groups.forEach((items,key)=>{
+      const done=items.filter(hasInspection).length;
+      const color=done===0?"#c83c3c":done===items.length?"#16834b":"#d58a18";
+      const [lat,lon]=key.split(",").map(Number);
+      const marker=L.circleMarker([lat,lon],{radius:9,color:"#fff",weight:2,fillColor:color,fillOpacity:.95}).addTo(markerLayer);
+      const rows=items.map(a=>'<div class="popup-item"><b>'+esc(a.emplazamiento)+', '+esc(a.numero_portal)+'</b><br>'+esc(a.matricula||"Sin matrícula")+' · '+esc(a.distrito)+'<br><span>'+(hasInspection(a)?"Revisado":"Sin revisar")+'</span><br><a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+","+lon)+'">Abrir ruta en Google Maps</a></div>').join("");
+      marker.bindPopup('<b>'+done+' de '+items.length+' autorizaciones revisadas</b>'+rows);
+    });
+    if(geocoded.length)leafletMap.fitBounds(markerLayer.getBounds().pad(.12));
+    setTimeout(()=>leafletMap&&leafletMap.invalidateSize(),250);
+    $("#pending-addresses").querySelectorAll(".geocode-btn").forEach(b=>b.onclick=()=>geocodeAuthorization(Number(b.dataset.id),b));
+  }
+  async function geocodeAuthorization(id,button){
+    const a=auths.find(x=>Number(x.id)===id);if(!a||agent.rol!=="administrador")return;
+    button.disabled=true;button.textContent="Buscando…";
+    try{
+      const q=addressText(a);
+      const url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&country=es&q="+encodeURIComponent(q);
+      const res=await fetch(url,{headers:{"Accept":"application/json"}});
+      if(!res.ok)throw Error("El servicio de búsqueda no responde (HTTP "+res.status+").");
+      const found=await res.json();
+      if(!found.length)throw Error("No se ha encontrado una coincidencia. Comprueba la dirección o inténtalo más adelante.");
+      const options=found.map((x,n)=>(n+1)+". "+x.display_name).join("\n\n");
+      const choice=prompt("Comprueba qué resultado corresponde exactamente con el portal "+(a.numero_portal||"indicado")+". Escribe el número del resultado para guardar sus coordenadas:\n\n"+options+"\n\nSi ninguno coincide, pulsa Cancelar.");
+      if(choice===null){button.disabled=false;button.textContent="Localizar y verificar";return}
+      const selected=found[Number(choice)-1];
+      if(!selected){throw Error("Selección no válida. No se ha guardado ningún punto.")}
+      const confirmText="¿Confirmas esta ubicación?\n\n"+selected.display_name+"\n\nLatitud: "+selected.lat+"\nLongitud: "+selected.lon;
+      if(!confirm(confirmText)){button.disabled=false;button.textContent="Localizar y verificar";return}
+      const {error}=await db.from("autorizaciones").update({latitud:Number(selected.lat),longitud:Number(selected.lon),geocodificacion_estado:"verificada"}).eq("id",a.id);
+      if(error)throw Error("No se pudieron guardar las coordenadas: "+error.message);
+      await reload();map();
+    }catch(err){alert(err.message);button.disabled=false;button.textContent="Localizar y verificar"}
   }
   function admin(){
     if(agent.rol!=="administrador"){render("inicio");return}
